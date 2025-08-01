@@ -1070,6 +1070,7 @@ checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
 [[package]]
 name = "mchprs_blocks"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "hematite-nbt",
  "mchprs_proc_macros",
@@ -1080,6 +1081,7 @@ dependencies = [
 [[package]]
 name = "mchprs_network"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "bitvec",
  "byteorder",
@@ -1093,6 +1095,7 @@ dependencies = [
 [[package]]
 name = "mchprs_proc_macros"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "quote",
  "syn",
@@ -1101,6 +1104,7 @@ dependencies = [
 [[package]]
 name = "mchprs_redpiler"
 version = "0.1.0"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "enum_dispatch",
  "itertools",
@@ -1118,6 +1122,7 @@ dependencies = [
 [[package]]
 name = "mchprs_redstone"
 version = "0.1.0"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "mchprs_blocks",
  "mchprs_world",
@@ -1128,6 +1133,7 @@ dependencies = [
 [[package]]
 name = "mchprs_text"
 version = "0.1.0"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "once_cell",
  "regex",
@@ -1138,10 +1144,12 @@ dependencies = [
 [[package]]
 name = "mchprs_utils"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 
 [[package]]
 name = "mchprs_world"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "hematite-nbt",
  "mchprs_blocks",
@@ -1820,6 +1828,7 @@ dependencies = [
 [[package]]
 name = "redpiler_graph"
 version = "0.4.1"
+source = "git+https://github.com/MCHPR/MCHPRS.git?branch=master#b333b2c93edfe31ef26308712f9e1e69487b3f47"
 dependencies = [
  "bincode",
  "serde",

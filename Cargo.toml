@@ -7,8 +7,11 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+[profile.release]
+lto = true
+codegen-units = 1
 
+[dependencies]
 # This is the base crate with most high-level type definitions
 pumpkin = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin" } 
 # Other utilities used by Pumpkin (e.g. TextComponent, Vectors...)
@@ -30,7 +33,7 @@ tokio = "1.42"
 log = "0.4"
 
 
-mchprs_redpiler = { path = "../MCHPRS/crates/redpiler"}
-mchprs_redstone = {path = "../MCHPRS/crates/redstone"}
-mchprs_world = {path = "../MCHPRS/crates/world"}
-mchprs_blocks = {path = "../MCHPRS/crates/blocks"}
+mchprs_redpiler = { git = "https://github.com/MCHPR/MCHPRS.git", branch = "master", package = "mchprs_redpiler"}
+mchprs_redstone = { git = "https://github.com/MCHPR/MCHPRS.git", branch = "master", package = "mchprs_redstone"}
+mchprs_world = { git = "https://github.com/MCHPR/MCHPRS.git", branch = "master", package = "mchprs_world"}
+mchprs_blocks = { git = "https://github.com/MCHPR/MCHPRS.git", branch = "master", package = "mchprs_blocks"}
