@@ -1,16 +1,17 @@
 // TODO: Cleanup
 
 mod fixed_world;
+mod pumpkin_plot;
 
-use std::sync::{Arc, atomic::Ordering};
+use std::{sync::{atomic::Ordering, Arc}, time::Duration};
 
 use async_trait::async_trait;
-use mchprs_blocks::blocks::{
+use mchprs_blocks::{blocks::{
     Lever, RedstoneComparator, RedstoneRepeater, RedstoneWire, RedstoneWireSide,
-};
+}};
 use mchprs_redpiler::{BackendVariant, Compiler, CompilerOptions};
 use mchprs_world::World;
-use pumpkin_api_macros::{plugin_impl, plugin_method};
+use pumpkin_api_macros::{plugin_impl, plugin_method, with_runtime};
 use pumpkin_data::{
     Block,
     block_properties::{
@@ -24,12 +25,9 @@ use pumpkin_data::{
 
 use pumpkin::{
     command::{
-        CommandExecutor, CommandSender,
-        args::{Arg, ConsumedArgs},
-        dispatcher::CommandError,
-        tree::{CommandTree, builder::literal},
+        args::{Arg, ConsumedArgs}, dispatcher::CommandError, tree::{builder::literal, CommandTree}, CommandExecutor, CommandSender
     },
-    plugin::Context,
+    plugin::{block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent}, player::{player_interact_event::{InteractAction, PlayerInteractEvent}, player_join::PlayerJoinEvent}, Context, Event, EventHandler, EventPriority},
     server::Server,
 };
 use pumpkin_util::{
@@ -39,10 +37,12 @@ use pumpkin_util::{
 };
 use tokio::sync::RwLock;
 
-type RedstoneWireProperties = RedstoneWireLikeProperties;
-type RWallTorchProps = block_properties::FurnaceLikeProperties;
-type RTorchProps = block_properties::RedstoneOreLikeProperties;
-type RedstoneLampProperties = RedstoneOreLikeProperties;
+use crate::{fixed_world::TestWorld, pumpkin_plot::PumpkinWorld};
+
+pub type RedstoneWireProperties = RedstoneWireLikeProperties;
+pub type RWallTorchProps = block_properties::FurnaceLikeProperties;
+pub type RTorchProps = block_properties::RedstoneOreLikeProperties;
+pub type RedstoneLampProperties = RedstoneOreLikeProperties;
 
 #[plugin_method]
 async fn on_load(&mut self, server: Arc<Context>) -> Result<(), String> {
@@ -85,8 +85,136 @@ async fn on_load_internal(plugin: &mut MyPlugin, server: Arc<Context>) -> Result
 
     server.register_command(command, permission_node).await;
     log::info!("registered redpiler commands");
+    
+    server.register_event(Arc::new(InputHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
+    server.register_event(Arc::new(BreakHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
+    server.register_event(Arc::new(PlaceHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
+
+    log::info!("registered redpiler events");
+
+    let thread_server = server.clone();
+    let data = plugin.data.clone();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        runtime.block_on(tick_loop(data, thread_server));
+    });
+
 
     Ok(())
+}
+
+async fn tick_loop(data: Arc<RwLock<PluginData>>, context: Arc<Context>) {
+    let multiplier = 1000;
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+
+        {
+            let mut data = data.write().await;
+            let Some(plot_data) = &mut data.plot else {
+                continue;
+            };
+            plot_data.compiler.tickn(multiplier);
+            let mut world = PumpkinWorld::new(plot_data.base);
+            plot_data.compiler.flush(&mut world);
+            world.apply(plot_data.world.clone()).await;
+        }
+
+    }
+}
+
+struct BreakHandler {
+    data: Arc<RwLock<PluginData>>
+}
+
+#[with_runtime(global)]
+#[async_trait]
+impl EventHandler<BlockBreakEvent> for BreakHandler {
+    async fn handle_blocking(&self, _server: &Arc<Server>, event: &mut BlockBreakEvent) {
+        let pos = event.block_position;
+
+        let mut data = self.data.write().await;
+
+        let Some(plot_data) = &data.plot else {
+            return;
+        };
+
+        let mchprs_pos = mchprs_blocks::BlockPos::new(
+            pos.0.x - plot_data.base.x,
+            pos.0.y - plot_data.base.y,
+            pos.0.z - plot_data.base.z,
+        );
+
+        if !plot_data.plot.block_in_world(mchprs_pos) {
+            return;
+        }
+
+        data.plot = None;
+        log::info!("Invalidated plot");
+    }
+}
+
+struct PlaceHandler {
+    data: Arc<RwLock<PluginData>>
+}
+
+#[with_runtime(global)]
+#[async_trait]
+impl EventHandler<BlockPlaceEvent> for PlaceHandler {
+    async fn handle_blocking(&self, _server: &Arc<Server>, event: &mut BlockPlaceEvent) {
+        // TODO: only invalidate plot when change happens inside of it
+        let mut data = self.data.write().await;
+
+        data.plot = None;
+
+        log::info!("Invalidated plot");
+    }
+}
+
+struct InputHandler{
+    data: Arc<RwLock<PluginData>>
+}
+
+#[with_runtime(global)]
+#[async_trait]
+impl EventHandler<PlayerInteractEvent> for InputHandler {
+    async fn handle_blocking(&self, _server: &Arc<Server>, event: &mut PlayerInteractEvent) {
+        let Some(pos) = event.clicked_pos else {
+            return;
+        };
+
+        let mut data = self.data.write().await;
+
+        let Some(plot_data) = &mut data.plot else {
+            return;
+        };
+
+        let mchprs_pos = mchprs_blocks::BlockPos::new(
+            pos.0.x - plot_data.base.x,
+            pos.0.y - plot_data.base.y,
+            pos.0.z - plot_data.base.z,
+        );
+
+        if !plot_data.plot.block_in_world(mchprs_pos) {
+            log::info!("outside interact with block at {:?}", mchprs_pos);
+            return;
+        }
+        
+        if event.action.is_right_click() {
+            data.plot = None;
+            log::info!("Invalidated plot");
+            return;
+        }
+        
+        log::info!("interact with block at {:?}", mchprs_pos);
+
+
+        if matches!(plot_data.plot.get_block(mchprs_pos), mchprs_blocks::blocks::Block::Air {  }) {
+            return;
+        }
+        
+        plot_data.compiler.on_use_block(mchprs_pos);
+
+    }
 }
 
 #[plugin_impl]
@@ -114,6 +242,14 @@ impl Default for MyPlugin {
 struct PluginData {
     pos1: Option<BlockPos>,
     pos2: Option<BlockPos>,
+    plot: Option<PlotData>,
+}
+
+struct PlotData {
+    world: Arc<pumpkin::world::World>,
+    base: mchprs_blocks::BlockPos,
+    plot: TestWorld,
+    compiler: Compiler,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -156,7 +292,7 @@ impl CommandExecutor for Exe {
         sender: &mut CommandSender,
         server: &Server,
         args: &ConsumedArgs<'a>,
-    ) -> Result<(), CommandError> {
+    ) -> Result<(), CommandError> {        
         let world = sender.world().await;
         log::info!("hello execute {:?}", self.cmd);
         log::info!("has world {:?}", world.is_some());
@@ -169,8 +305,6 @@ impl CommandExecutor for Exe {
             log::error!("Redpiler commands must be run by a player");
             return Err(CommandError::PermissionDenied);
         };
-
-        let mut data = self.data.write().await;
 
         match self.cmd {
             Command::Compile => {
@@ -186,9 +320,10 @@ impl CommandExecutor for Exe {
                     }
                 }
 
+                let mut data = self.data.write().await;
                 let (Some(p1), Some(p2)) = (data.pos1, data.pos2) else {
                     return Err(CommandError::PermissionDenied);
-                };
+                };                
 
                 let x1 = p1.0.x.min(p2.0.x);
                 let x2 = p1.0.x.max(p2.0.x);
@@ -196,6 +331,13 @@ impl CommandExecutor for Exe {
                 let y2 = p1.0.y.max(p2.0.y);
                 let z1 = p1.0.z.min(p2.0.z);
                 let z2 = p1.0.z.max(p2.0.z);
+
+
+                sender.send_message(TextComponent::text(format!(
+                        "Compiling selection {}, {}, {} ; {}, {}, {}",
+                        x1, y1, z1, x2, y2, z2
+                    )))
+                    .await;
 
                 let mut plot = fixed_world::TestWorld::new(x2 - x1, y2 - y1, z2 - z1);
 
@@ -442,18 +584,23 @@ impl CommandExecutor for Exe {
                 let ticks = plot.to_be_ticked.drain(..).collect();
                 let monitor = Default::default();
                 compiler.compile(&mut plot, bounds, options, ticks, monitor);
+                
+                data.plot = Some(PlotData { base: mchprs_blocks::BlockPos::new(x1, y1, z1), plot, compiler, world: world.clone() });
 
                 sender
                     .send_message(TextComponent::text(format!("Compiled successfully")))
                     .await;
             }
             Command::Pos1 => {
+                let mut data = self.data.write().await;
                 data.pos1 = Some(player.position().sub_raw(0.5, 0.5, 0.5).to_block_pos());
             }
             Command::Pos2 => {
+                let mut data = self.data.write().await;
                 data.pos2 = Some(player.position().sub_raw(0.5, 0.5, 0.5).to_block_pos());
             }
             Command::Deselect => {
+                let mut data = self.data.write().await;
                 data.pos1 = None;
                 data.pos2 = None;
             }
@@ -474,16 +621,6 @@ fn facing_to_mchprs(face: block_properties::Facing) -> mchprs_blocks::BlockFacin
     }
 }
 
-fn facing_to_pumpkin(face: mchprs_blocks::BlockFacing) -> block_properties::Facing {
-    match face {
-        mchprs_blocks::BlockFacing::North => block_properties::Facing::North,
-        mchprs_blocks::BlockFacing::East => block_properties::Facing::East,
-        mchprs_blocks::BlockFacing::South => block_properties::Facing::South,
-        mchprs_blocks::BlockFacing::West => block_properties::Facing::West,
-        mchprs_blocks::BlockFacing::Up => block_properties::Facing::Up,
-        mchprs_blocks::BlockFacing::Down => block_properties::Facing::Down,
-    }
-}
 
 fn direction_to_mchprs(face: HorizontalFacing) -> mchprs_blocks::BlockDirection {
     match face {
@@ -491,14 +628,5 @@ fn direction_to_mchprs(face: HorizontalFacing) -> mchprs_blocks::BlockDirection 
         HorizontalFacing::East => mchprs_blocks::BlockDirection::East,
         HorizontalFacing::South => mchprs_blocks::BlockDirection::South,
         HorizontalFacing::West => mchprs_blocks::BlockDirection::West,
-    }
-}
-
-fn direction_to_pumpkin(face: mchprs_blocks::BlockDirection) -> HorizontalFacing {
-    match face {
-        mchprs_blocks::BlockDirection::North => HorizontalFacing::North,
-        mchprs_blocks::BlockDirection::East => HorizontalFacing::East,
-        mchprs_blocks::BlockDirection::South => HorizontalFacing::South,
-        mchprs_blocks::BlockDirection::West => HorizontalFacing::West,
     }
 }

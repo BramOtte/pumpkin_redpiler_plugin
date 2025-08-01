@@ -26,6 +26,12 @@ impl TestWorld {
         }
     }
 
+    pub fn block_in_world(&self, pos: BlockPos) -> bool {
+        pos.x >= 0 && pos.x < self.size_x &&
+        pos.y >= 0 && pos.y < self.size_y &&
+        pos.z >= 0 && pos.z < self.size_z
+    }
+
     fn get_chunk_index_for_chunk(&self, chunk_x: i32, chunk_z: i32) -> usize {
         (chunk_x * self.size_z + chunk_z).unsigned_abs() as usize
     }
