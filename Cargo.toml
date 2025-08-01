@@ -13,6 +13,10 @@ crate-type = ["cdylib"]
 pumpkin = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin" } 
 # Other utilities used by Pumpkin (e.g. TextComponent, Vectors...)
 pumpkin-util = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-util" }
+
+pumpkin-data = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-data" }
+
+
 # Macros for easier plugin development
 pumpkin-api-macros = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-api-macros" }
 
@@ -22,3 +26,9 @@ async-trait = "0.1"
 tokio = "1.42"
 # Logging
 log = "0.4"
+
+
+mchprs_redpiler = { path = "../MCHPRS/crates/redpiler"}
+mchprs_redstone = {path = "../MCHPRS/crates/redstone"}
+mchprs_world = {path = "../MCHPRS/crates/world"}
+mchprs_blocks = {path = "../MCHPRS/crates/blocks"}
