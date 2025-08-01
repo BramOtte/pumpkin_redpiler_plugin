@@ -1,15 +1,24 @@
 use std::sync::Arc;
 
-use mchprs_blocks::{blocks::{Block, RedstoneWireSide}, BlockPos};
+use mchprs_blocks::{
+    BlockPos,
+    blocks::{Block, RedstoneWireSide},
+};
 use pumpkin;
-use pumpkin_data::block_properties::{self, BlockProperties, EastWireConnection, EnumVariants, HorizontalFacing, LeverLikeProperties, NorthWireConnection, OakDoorLikeProperties, OakTrapdoorLikeProperties, RepeaterLikeProperties, SouthWireConnection, StonePressurePlateLikeProperties, WestWireConnection};
+use pumpkin_data::block_properties::{
+    self, BlockProperties, ComparatorLikeProperties, EastWireConnection, EnumVariants,
+    HorizontalFacing, LeverLikeProperties, NorthWireConnection, OakDoorLikeProperties,
+    OakTrapdoorLikeProperties, RepeaterLikeProperties, SouthWireConnection,
+    StonePressurePlateLikeProperties, WestWireConnection,
+};
 use pumpkin_world::world::BlockFlags;
 
 use crate::{RTorchProps, RWallTorchProps, RedstoneLampProperties, RedstoneWireProperties};
 
 pub struct PumpkinWorld {
     pub base: BlockPos,
-    pub set_events: Vec<(BlockPos, u32)>
+    pub set_events: Vec<(BlockPos, u32)>,
+    pub entities: Vec<(BlockPos, mchprs_blocks::block_entities::BlockEntity)>,
 }
 
 
@@ -28,11 +37,18 @@ impl mchprs_world::World for PumpkinWorld {
         todo!()
     }
 
-    fn get_block_entity(&self, pos: BlockPos) -> Option<&mchprs_blocks::block_entities::BlockEntity> {
+    fn get_block_entity(
+        &self,
+        pos: BlockPos,
+    ) -> Option<&mchprs_blocks::block_entities::BlockEntity> {
         todo!()
     }
 
-    fn set_block_entity(&mut self, pos: BlockPos, block_entity: mchprs_blocks::block_entities::BlockEntity) {
+    fn set_block_entity(
+        &mut self,
+        pos: BlockPos,
+        block_entity: mchprs_blocks::block_entities::BlockEntity,
+    ) {
         todo!()
     }
 
@@ -53,12 +69,12 @@ impl mchprs_world::World for PumpkinWorld {
     }
 }
 
-
 impl PumpkinWorld {
     pub fn new(base: BlockPos) -> Self {
         PumpkinWorld {
             base,
             set_events: Vec::new(),
+            entities: Vec::new(),
         }
     }
 
@@ -77,42 +93,44 @@ impl PumpkinWorld {
             let state = match block {
                 Block::RedstoneWire { wire } => RedstoneWireProperties {
                     north: match wire.north {
-                            RedstoneWireSide::Up   => NorthWireConnection::Up  ,
-                            RedstoneWireSide::Side => NorthWireConnection::Side,
-                            RedstoneWireSide::None => NorthWireConnection::None,
+                        RedstoneWireSide::Up => NorthWireConnection::Up,
+                        RedstoneWireSide::Side => NorthWireConnection::Side,
+                        RedstoneWireSide::None => NorthWireConnection::None,
                     },
                     south: match wire.south {
-                        RedstoneWireSide::Up   => SouthWireConnection::Up  ,
+                        RedstoneWireSide::Up => SouthWireConnection::Up,
                         RedstoneWireSide::Side => SouthWireConnection::Side,
                         RedstoneWireSide::None => SouthWireConnection::None,
                     },
                     east: match wire.east {
-                        RedstoneWireSide::Up   => EastWireConnection::Up  ,
+                        RedstoneWireSide::Up => EastWireConnection::Up,
                         RedstoneWireSide::Side => EastWireConnection::Side,
                         RedstoneWireSide::None => EastWireConnection::None,
                     },
                     west: match wire.west {
-                        RedstoneWireSide::Up   => WestWireConnection::Up  ,
+                        RedstoneWireSide::Up => WestWireConnection::Up,
                         RedstoneWireSide::Side => WestWireConnection::Side,
                         RedstoneWireSide::None => WestWireConnection::None,
                     },
-                    power: pumpkin_data::block_properties::Integer0To15::from_index(wire.power as u16)
-                }.to_state_id(&pumpkin_block),
+                    power: pumpkin_data::block_properties::Integer0To15::from_index(
+                        wire.power as u16,
+                    ),
+                }
+                .to_state_id(&pumpkin_block),
                 Block::Lever { lever } => LeverLikeProperties {
                     face: match lever.face {
                         mchprs_blocks::blocks::LeverFace::Floor => {
                             block_properties::BlockFace::Floor
                         }
-                        mchprs_blocks::blocks::LeverFace::Wall => {
-                            block_properties::BlockFace::Wall
-                        }
+                        mchprs_blocks::blocks::LeverFace::Wall => block_properties::BlockFace::Wall,
                         mchprs_blocks::blocks::LeverFace::Ceiling => {
                             block_properties::BlockFace::Ceiling
                         }
                     },
                     facing: direction_to_pumpkin(lever.facing),
-                    powered: lever.powered
-                }.to_state_id(pumpkin_block),
+                    powered: lever.powered,
+                }
+                .to_state_id(pumpkin_block),
                 Block::StoneButton { button } => LeverLikeProperties {
                     face: match button.face {
                         mchprs_blocks::blocks::ButtonFace::Floor => {
@@ -126,25 +144,30 @@ impl PumpkinWorld {
                         }
                     },
                     facing: direction_to_pumpkin(button.facing),
-                    powered: button.powered
-                }.to_state_id(pumpkin_block),
-                Block::RedstoneTorch { lit } => RTorchProps {
-                    lit
-                }.to_state_id(pumpkin_block),
+                    powered: button.powered,
+                }
+                .to_state_id(pumpkin_block),
+                Block::RedstoneTorch { lit } => RTorchProps { lit }.to_state_id(pumpkin_block),
                 Block::RedstoneWallTorch { lit, facing } => RWallTorchProps {
                     facing: direction_to_pumpkin(facing),
                     lit,
-                }.to_state_id(pumpkin_block),
+                }
+                .to_state_id(pumpkin_block),
                 Block::RedstoneRepeater { repeater } => RepeaterLikeProperties {
                     delay: block_properties::Integer1To4::from_index(repeater.delay as u16 - 1),
                     facing: direction_to_pumpkin(repeater.facing),
                     locked: repeater.locked,
                     powered: repeater.powered,
-                }.to_state_id(pumpkin_block),
-                Block::RedstoneLamp { lit } => RedstoneLampProperties {
-                    lit,
-                }.to_state_id(pumpkin_block),
-                Block::IronTrapdoor { facing, half, powered } => OakTrapdoorLikeProperties {
+                }
+                .to_state_id(pumpkin_block),
+                Block::RedstoneLamp { lit } => {
+                    RedstoneLampProperties { lit }.to_state_id(pumpkin_block)
+                }
+                Block::IronTrapdoor {
+                    facing,
+                    half,
+                    powered,
+                } => OakTrapdoorLikeProperties {
                     facing: direction_to_pumpkin(facing),
                     half: match half {
                         mchprs_blocks::blocks::TrapdoorHalf::Top => {
@@ -157,25 +180,45 @@ impl PumpkinWorld {
                     open: powered,
                     powered,
                     waterlogged: false,
-                }.to_state_id(pumpkin_block),
-                Block::NoteBlock { instrument, note, powered } => todo!(),
-                Block::StonePressurePlate { powered } => StonePressurePlateLikeProperties {
-                    powered
-                }.to_state_id(pumpkin_block),
+                }
+                .to_state_id(pumpkin_block),
+                Block::NoteBlock {
+                    instrument,
+                    note,
+                    powered,
+                } => todo!(),
+                Block::StonePressurePlate { powered } => {
+                    StonePressurePlateLikeProperties { powered }.to_state_id(pumpkin_block)
+                }
                 Block::Observer { facing } => todo!(),
-                Block::RedstoneComparator { comparator } => todo!(),
+                Block::RedstoneComparator { comparator } => ComparatorLikeProperties {
+                    facing: direction_to_pumpkin(comparator.facing),
+                    mode: match comparator.mode {
+                        mchprs_blocks::blocks::ComparatorMode::Compare => {
+                            block_properties::ComparatorMode::Compare
+                        }
+                        mchprs_blocks::blocks::ComparatorMode::Subtract => {
+                            block_properties::ComparatorMode::Subtract
+                        }
+                    },
+                    powered: comparator.powered,
+                }
+                .to_state_id(pumpkin_block),
                 _ => continue,
             };
 
-            println!("updating block at {:?} to {:?}", pumpkin_pos, block);
+            // println!("updating block at {:?} to {:?}", pumpkin_pos, block);
 
+            world
+                .set_block_state(&pumpkin_pos, state, BlockFlags::empty())
+                .await;
+        }
 
-            world.set_block_state(&pumpkin_pos, state, BlockFlags::empty()).await;
-
+        for (pos, entity) in self.entities.drain(..) {
+            // println!("updating block entity at {:?} to {:?}", pos, entity);
         }
     }
 }
-
 
 fn facing_to_pumpkin(face: mchprs_blocks::BlockFacing) -> block_properties::Facing {
     match face {

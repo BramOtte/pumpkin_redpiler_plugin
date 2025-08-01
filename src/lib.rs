@@ -3,12 +3,15 @@
 mod fixed_world;
 mod pumpkin_plot;
 
-use std::{sync::{atomic::Ordering, Arc}, time::Duration};
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 
 use async_trait::async_trait;
-use mchprs_blocks::{blocks::{
+use mchprs_blocks::blocks::{
     Lever, RedstoneComparator, RedstoneRepeater, RedstoneWire, RedstoneWireSide,
-}};
+};
 use mchprs_redpiler::{BackendVariant, Compiler, CompilerOptions};
 use mchprs_world::World;
 use pumpkin_api_macros::{plugin_impl, plugin_method, with_runtime};
@@ -25,9 +28,22 @@ use pumpkin_data::{
 
 use pumpkin::{
     command::{
-        args::{Arg, ConsumedArgs}, dispatcher::CommandError, tree::{builder::literal, CommandTree}, CommandExecutor, CommandSender
+        CommandExecutor, CommandSender,
+        args::{
+            Arg, ConsumedArgs,
+            bounded_num::{BoundedNumArgumentConsumer, Number},
+        },
+        dispatcher::CommandError,
+        tree::{
+            CommandTree,
+            builder::{argument, literal},
+        },
     },
-    plugin::{block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent}, player::{player_interact_event::{InteractAction, PlayerInteractEvent}, player_join::PlayerJoinEvent}, Context, Event, EventHandler, EventPriority},
+    plugin::{
+        Context, Event, EventHandler, EventPriority,
+        block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
+        player::player_interact_event::PlayerInteractEvent,
+    },
     server::Server,
 };
 use pumpkin_util::{
@@ -62,7 +78,7 @@ async fn on_load_internal(plugin: &mut MyPlugin, server: Arc<Context>) -> Result
     let mut registry = manager.registry.write().await;
     registry.register_permission(permission)?;
 
-    let command = CommandTree::new(
+    let command_rp = CommandTree::new(
         ["redpiler", "rp"],
         "Compile redstone in selected area for faster execution",
     )
@@ -83,47 +99,93 @@ async fn on_load_internal(plugin: &mut MyPlugin, server: Arc<Context>) -> Result
         data: plugin.data.clone(),
     }));
 
-    server.register_command(command, permission_node).await;
+    let command_rtps = CommandTree::new(
+        ["rtps"],
+        "The tick rate for the circuits compiled with redpiler in redstone tick per second",
+    )
+    .then(
+        argument(
+            "ticks per second",
+            BoundedNumArgumentConsumer::new().min(10).max(10_000_000),
+        )
+        .execute(Exe {
+            cmd: Command::RTPS,
+            data: plugin.data.clone(),
+        }),
+    );
+
+    server.register_command(command_rp, permission_node).await;
+    server.register_command(command_rtps, permission_node).await;
+
     log::info!("registered redpiler commands");
-    
-    server.register_event(Arc::new(InputHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
-    server.register_event(Arc::new(BreakHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
-    server.register_event(Arc::new(PlaceHandler{data: plugin.data.clone()}), EventPriority::Lowest, true).await;
+
+    server
+        .register_event(
+            Arc::new(InputHandler {
+                data: plugin.data.clone(),
+            }),
+            EventPriority::Lowest,
+            true,
+        )
+        .await;
+    server
+        .register_event(
+            Arc::new(BreakHandler {
+                data: plugin.data.clone(),
+            }),
+            EventPriority::Lowest,
+            true,
+        )
+        .await;
+    server
+        .register_event(
+            Arc::new(PlaceHandler {
+                data: plugin.data.clone(),
+            }),
+            EventPriority::Lowest,
+            true,
+        )
+        .await;
 
     log::info!("registered redpiler events");
 
     let thread_server = server.clone();
     let data = plugin.data.clone();
     std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
         runtime.block_on(tick_loop(data, thread_server));
     });
-
 
     Ok(())
 }
 
 async fn tick_loop(data: Arc<RwLock<PluginData>>, context: Arc<Context>) {
-    let multiplier = 1000;
     loop {
-        std::thread::sleep(Duration::from_millis(100));
+        let next_update = tokio::time::Instant::now() + Duration::from_millis(100);
 
         {
             let mut data = data.write().await;
+            let ticks = data.rtps / 10;
+
             let Some(plot_data) = &mut data.plot else {
                 continue;
             };
-            plot_data.compiler.tickn(multiplier);
+
+            plot_data.compiler.tickn(ticks);
             let mut world = PumpkinWorld::new(plot_data.base);
             plot_data.compiler.flush(&mut world);
             world.apply(plot_data.world.clone()).await;
         }
 
+        tokio::time::sleep_until(next_update).await;
     }
 }
 
 struct BreakHandler {
-    data: Arc<RwLock<PluginData>>
+    data: Arc<RwLock<PluginData>>,
 }
 
 #[with_runtime(global)]
@@ -154,7 +216,7 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
 }
 
 struct PlaceHandler {
-    data: Arc<RwLock<PluginData>>
+    data: Arc<RwLock<PluginData>>,
 }
 
 #[with_runtime(global)]
@@ -170,8 +232,8 @@ impl EventHandler<BlockPlaceEvent> for PlaceHandler {
     }
 }
 
-struct InputHandler{
-    data: Arc<RwLock<PluginData>>
+struct InputHandler {
+    data: Arc<RwLock<PluginData>>,
 }
 
 #[with_runtime(global)]
@@ -198,22 +260,23 @@ impl EventHandler<PlayerInteractEvent> for InputHandler {
             log::info!("outside interact with block at {:?}", mchprs_pos);
             return;
         }
-        
+
         if event.action.is_right_click() {
             data.plot = None;
             log::info!("Invalidated plot");
             return;
         }
-        
+
         log::info!("interact with block at {:?}", mchprs_pos);
 
-
-        if matches!(plot_data.plot.get_block(mchprs_pos), mchprs_blocks::blocks::Block::Air {  }) {
+        if matches!(
+            plot_data.plot.get_block(mchprs_pos),
+            mchprs_blocks::blocks::Block::Air {}
+        ) {
             return;
         }
-        
-        plot_data.compiler.on_use_block(mchprs_pos);
 
+        plot_data.compiler.on_use_block(mchprs_pos);
     }
 }
 
@@ -227,7 +290,10 @@ impl MyPlugin {
         println!("hello from redpiler plugin");
 
         MyPlugin {
-            data: Arc::new(RwLock::new(PluginData::default())),
+            data: Arc::new(RwLock::new(PluginData {
+                rtps: 10,
+                ..Default::default()
+            })),
         }
     }
 }
@@ -243,6 +309,7 @@ struct PluginData {
     pos1: Option<BlockPos>,
     pos2: Option<BlockPos>,
     plot: Option<PlotData>,
+    rtps: u64,
 }
 
 struct PlotData {
@@ -258,6 +325,7 @@ enum Command {
     Pos1,
     Pos2,
     Deselect,
+    RTPS,
 }
 
 struct Exe {
@@ -292,7 +360,7 @@ impl CommandExecutor for Exe {
         sender: &mut CommandSender,
         server: &Server,
         args: &ConsumedArgs<'a>,
-    ) -> Result<(), CommandError> {        
+    ) -> Result<(), CommandError> {
         let world = sender.world().await;
         log::info!("hello execute {:?}", self.cmd);
         log::info!("has world {:?}", world.is_some());
@@ -307,6 +375,34 @@ impl CommandExecutor for Exe {
         };
 
         match self.cmd {
+            Command::RTPS => {
+                let mut data = self.data.write().await;
+                let Some((name, arg)) = args.iter().next() else {
+                    return Err(CommandError::CommandFailed(Box::new(TextComponent::text(
+                        "Missing argument",
+                    ))));
+                };
+
+                match arg {
+                    Arg::Num(Ok(Number::I64(n))) => {
+                        data.rtps = *n as u64;
+                        sender
+                            .send_message(TextComponent::text("successfully set rtps"))
+                            .await;
+                    }
+                    Arg::Num(Ok(Number::I32(n))) => {
+                        data.rtps = *n as u64;
+                        sender
+                            .send_message(TextComponent::text("successfully set rtps"))
+                            .await;
+                    }
+                    _ => {
+                        return Err(CommandError::CommandFailed(Box::new(TextComponent::text(
+                            "Expected positive integer argument",
+                        ))));
+                    }
+                }
+            }
             Command::Compile => {
                 // TODO: Add all components including all containers
                 // TODO: Pass along pending ticks
@@ -323,7 +419,7 @@ impl CommandExecutor for Exe {
                 let mut data = self.data.write().await;
                 let (Some(p1), Some(p2)) = (data.pos1, data.pos2) else {
                     return Err(CommandError::PermissionDenied);
-                };                
+                };
 
                 let x1 = p1.0.x.min(p2.0.x);
                 let x2 = p1.0.x.max(p2.0.x);
@@ -332,8 +428,8 @@ impl CommandExecutor for Exe {
                 let z1 = p1.0.z.min(p2.0.z);
                 let z2 = p1.0.z.max(p2.0.z);
 
-
-                sender.send_message(TextComponent::text(format!(
+                sender
+                    .send_message(TextComponent::text(format!(
                         "Compiling selection {}, {}, {} ; {}, {}, {}",
                         x1, y1, z1, x2, y2, z2
                     )))
@@ -584,8 +680,13 @@ impl CommandExecutor for Exe {
                 let ticks = plot.to_be_ticked.drain(..).collect();
                 let monitor = Default::default();
                 compiler.compile(&mut plot, bounds, options, ticks, monitor);
-                
-                data.plot = Some(PlotData { base: mchprs_blocks::BlockPos::new(x1, y1, z1), plot, compiler, world: world.clone() });
+
+                data.plot = Some(PlotData {
+                    base: mchprs_blocks::BlockPos::new(x1, y1, z1),
+                    plot,
+                    compiler,
+                    world: world.clone(),
+                });
 
                 sender
                     .send_message(TextComponent::text(format!("Compiled successfully")))
@@ -620,7 +721,6 @@ fn facing_to_mchprs(face: block_properties::Facing) -> mchprs_blocks::BlockFacin
         block_properties::Facing::Down => mchprs_blocks::BlockFacing::Down,
     }
 }
-
 
 fn direction_to_mchprs(face: HorizontalFacing) -> mchprs_blocks::BlockDirection {
     match face {
