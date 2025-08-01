@@ -16,6 +16,8 @@ pumpkin-util = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "ma
 
 pumpkin-data = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-data" }
 
+pumpkin-world =  { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-world" }
+
 
 # Macros for easier plugin development
 pumpkin-api-macros = { git = "https://github.com/Pumpkin-MC/Pumpkin.git", branch = "master", package = "pumpkin-api-macros" }

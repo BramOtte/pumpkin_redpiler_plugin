@@ -1,5 +1,5 @@
-use mchprs_blocks::{block_entities::BlockEntity, BlockPos};
-use mchprs_world::{storage::Chunk, TickEntry, TickPriority, World};
+use mchprs_blocks::{BlockPos, block_entities::BlockEntity};
+use mchprs_world::{TickEntry, TickPriority, World, storage::Chunk};
 
 pub struct TestWorld {
     chunks: Vec<Chunk>,
@@ -20,7 +20,9 @@ impl TestWorld {
         TestWorld {
             chunks,
             to_be_ticked: Vec::new(),
-            size_x, size_y, size_z
+            size_x,
+            size_y,
+            size_z,
         }
     }
 
