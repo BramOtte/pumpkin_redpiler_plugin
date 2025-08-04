@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            dll_ext: .so
+            dll_prefix: lib
+          
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            dll_ext: .so
+            dll_prefix: lib
+            apt_packages: gcc-aarch64-linux-gnu
+          
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            exe_ext: .exe
+            dll_ext: .dll
+          
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            dll_prefix: lib
+            dll_ext: .dylib
+          
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            dll_prefix: lib
+            dll_ext: .dylib
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Install apt packages"
+        if: matrix.apt_packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ${{ matrix.apt_packages }}
+          version: 1.0
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pumpkin_redpiler_plugin-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ matrix.dll_prefix }}pumpkin_redpiler_plugin${{ matrix.dll_ext }}
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Reorganize artifacts
+        run: |
+          mkdir -p dist/
+          find artifacts/ -type f -exec bash -c 'base=$(basename $1); mv $1 dist/$(basename $(dirname $1))${base#${base%.*}}' _ {} \;
+
+      - name: Create preview release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete preview --yes || true
+          gh release create preview \
+            --prerelease \
+            --title "${GITHUB_REPOSITORY} Preview Build" \
+            --notes "🚧 **This is a preview build of the latest commit.**" \
+            dist/*
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          tag: ${{ github.ref_name }}
+        run: |
+          gh release create "$tag" \
+            --title "${GITHUB_REPOSITORY} ${tag#v}" \
+            --generate-notes \
+            dist/*
